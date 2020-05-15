@@ -2,24 +2,33 @@
 * Dropzone Wrapper
 */
 
-Dropzone.prototype.defaultOptions.dictDefaultMessage = Res['FileUploader.Dropzone.DictDefaultMessage'];
-Dropzone.prototype.defaultOptions.dictFallbackMessage = Res['FileUploader.Dropzone.DictFallbackMessage'];
-Dropzone.prototype.defaultOptions.dictFallbackText = Res['FileUploader.Dropzone.DictFallbackText'];
-Dropzone.prototype.defaultOptions.dictFileTooBig = Res['FileUploader.Dropzone.DictFileTooBig'];
-Dropzone.prototype.defaultOptions.dictInvalidFileType = Res['FileUploader.Dropzone.DictInvalidFileType'];
-Dropzone.prototype.defaultOptions.dictResponseError = Res['FileUploader.Dropzone.DictResponseError'];
-Dropzone.prototype.defaultOptions.dictCancelUpload = Res['FileUploader.Dropzone.DictCancelUpload'];
-Dropzone.prototype.defaultOptions.dictUploadCanceled = Res['FileUploader.Dropzone.DictUploadCanceled'];
-Dropzone.prototype.defaultOptions.dictCancelUploadConfirmation = Res['FileUploader.Dropzone.DictCancelUploadConfirmation'];
-Dropzone.prototype.defaultOptions.dictRemoveFile = Res['FileUploader.Dropzone.DictRemoveFile'];
-Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropzone.DictMaxFilesExceeded'];
+(function () {
+	var dzOpts = Dropzone.prototype.defaultOptions;
+	var resRoot = 'FileUploader.Dropzone.';
+
+	dzOpts.dictDefaultMessage = Res[resRoot + 'DictDefaultMessage'];
+	dzOpts.dictFallbackMessage = Res[resRoot + 'DictFallbackMessage'];
+	dzOpts.dictFallbackText = Res[resRoot + 'DictFallbackText'];
+	dzOpts.dictFileTooBig = Res[resRoot + 'DictFileTooBig'];
+	dzOpts.dictInvalidFileType = Res[resRoot + 'DictInvalidFileType'];
+	dzOpts.dictResponseError = Res[resRoot + 'DictResponseError'];
+	dzOpts.dictCancelUpload = Res[resRoot + 'DictCancelUpload'];
+	dzOpts.dictUploadCanceled = Res[resRoot + 'DictUploadCanceled'];
+	dzOpts.dictCancelUploadConfirmation = Res[resRoot + 'DictCancelUploadConfirmation'];
+	dzOpts.dictRemoveFile = Res[resRoot + 'DictRemoveFile'];
+	dzOpts.dictMaxFilesExceeded = Res[resRoot + 'DictMaxFilesExceeded'];
+})();
 
 (function ($) {
-	var remainingFiles;
+
+	// Temporary helper var
+	var logEvents = true;
+
 	var assignableFiles = [];
 	var assignableFileIds = "";
 	var activeFiles = 0;
 	var canUploadMoreFiles = true;
+	var dupeFileHandlerDisplayFile;
 
 	$.fn.dropzoneWrapper = function (options) {
 		return this.each(function () {
@@ -32,8 +41,8 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 			var elRemove = fuContainer.find('.remove'),
 				elCancel = elDropzone.find('.cancel'),
 				elFile = elDropzone.find('.fileinput-button'),
-				elProgressBar = elDropzone.find('.progress-bar'),
-				elStatusBar = elDropzone.find('.fileupload-status');
+				elProgressBar = fuContainer.find('.progress-bar'),
+				elStatus = fuContainer.find('.fileupload-status');
 
 			// Init dropzone.
 			elDropzone.addClass("dropzone");
@@ -44,7 +53,7 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 				acceptedFiles = "." + $el.data('accept').replace(/\,/g, ",.");
 
 				// Test
-				//acceptedFiles += ",.mp4";
+				acceptedFiles += ",.mp4";
 			}
 
 			// Dropzone init params.
@@ -59,6 +68,7 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 				uploadMultiple: true,
 				acceptedFiles: acceptedFiles,
 				maxFiles: options.maxFiles,
+				maxFilesize: 2048,
 				previewsContainer: options.previewContainerId !== "" ? "#" + options.previewContainerId : null
 			};
 
@@ -75,100 +85,76 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 			options = $.extend({}, opts, options);
 			el = new Dropzone(fuContainer[0], options);
 
-			//console.log(el);
-
 			el.on("addedfile", function (file) {
+				logEvent("addedfile", file);
 
-				console.log("addedfile", file);
-
-				// Reset progressbar when a new file was added.
-				dzResetProgressBar(elProgressBar);
+				// If file is a duplicate prevent it from being displayed in preview container.
+				if (preCheckForDuplicates(file.name, previewContainer)) {
+					$(file.previewTemplate).addClass("d-none");
+				}
 			});
 
 			el.on("addedfiles", function (files) {
-
-				console.log("addedfiles", files);
-
-				elStatusBar.find(".total-file-count").text(files.length);
-
-				// Reset progressbar when new files were added.
-				dzResetProgressBar(elProgressBar);
+				logEvent("addedfiles", files);
 			});
 
 			el.on("processing", function (file) {
-
 				var currentProcessingCount = el.getFilesWithStatus(Dropzone.PROCESSING).length;
 
-				console.log("processing", currentProcessingCount);
+				logEvent("processing", file, currentProcessingCount);
 
 				if (activeFiles === 0) {
 					activeFiles = this.files.length;
 				}
 			});
 
-			el.on("processingmultiple", function (file) {
-				console.log("processingmultiple", file);
+			el.on("processingmultiple", function (files) {
+				logEvent("processingmultiple", files);
 			});
 
 			el.on("sending", function (file, xhr, formData) {
 
-				console.log("sending");
+				logEvent("sending", file, xhr, formData);
 
 				// Write user decision of duplicate handling into formdata before sending so it'll be sent to the server with each file upload.
-				var enumId = fuContainer.data("duplicate-handling");
+				var enumId = fuContainer.data("dupe-handling-type");
 				if (enumId) {
-					formData.append("duplicateFileHandling", fuContainer.data("duplicate-handling"));
+					//file.dupeHandlingType = enumId;
+					formData.append("duplicateFileHandling", enumId);
 				}
 
 				if (options.onUploading) options.onUploading.apply(this, [file]);
 			});
 
-			el.on("sendingmultiple", function (file, xhr, formData) {
-				console.log("sendingmultiple");
+			el.on("sendingmultiple", function (files, xhr, formData) {
+				logEvent("sendingmultiple", files, xhr, formData);
 			});
 
-			el.on("uploadprogress", function (file, percent, bytes) {
+			el.on("uploadprogress", function (file, progress, bytes) {
+				logEvent("uploadprogress", file, progress, bytes);
 
-				console.log("uploadprogress", file, percent, bytes);
-
-				// TODO: find better way to display status bar
-				elStatusBar.removeClass("d-none");
-				elStatusBar.find(".current-file").text(file.name);
+				if (opts.maxFiles === 1) {
+					// Singlefile.
+					elProgressBar.attr('aria-valuenow', progress).css('width', progress + '%');
+				}
+				else {
+					// Mulifile.
+					var fileProgressBar = $(file.previewTemplate).find(".progress-bar");
+					fileProgressBar.attr('aria-valuenow', progress).css('width', progress + '%');
+				}
 			});
 
 			el.on("totaluploadprogress", function (progress, totalBytes, totalBytesSent) {
-
-				console.log("totaluploadprogress", progress, totalBytes, totalBytesSent);
-				//console.log("getUploadingFiles:", this.getUploadingFiles().length);
-
-				/*
-				console.log("getAcceptedFiles:", this.getAcceptedFiles().length);
-				console.log("getRejectedFiles:", this.getRejectedFiles().length);
-				console.log("getQueuedFiles:", this.getQueuedFiles().length);
-				console.log("getUploadingFiles:", this.getUploadingFiles().length);
-				console.log("files:", this.files.length);
-				*/
-
-
-
-				elProgressBar
-					.attr('aria-valuenow', progress)
-					.css('width', progress + '%');
-
-				elStatusBar.find(".percental-progress").text(Math.round(progress) + '%');
-
-				// TODO: For picture uploads this is way too fast. Nothing can be seen (Though the console shows it works correct).
-				elStatusBar.find(".current-file-count").text(activeFiles - this.getUploadingFiles().length);
-
-				//console.log(activeFiles, this.getUploadingFiles().length, activeFiles - this.getUploadingFiles().length);
+				logEvent("totaluploadprogress", progress, totalBytes, totalBytesSent);
 			});
 
 			el.on("success", function (file, response, progress) {
-
-				console.log("success", file, response, progress);
+				logEvent("success", file, response, progress);
 
 				// Only for singleupload.
 				if (opts.maxFiles === 1) {
+
+					console.log(response.url);
 
 					//fuContainer.find('.fileupload-filename').html(file.name);
 					//fuContainer.find('.fileupload-filesize').html(this.filesize(file.size));
@@ -178,46 +164,20 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 				}
 				else {
 
-					// If there was an error returned by the server.
-					if (!response.success) {
-
-						if (fuContainer.data("duplicate-handling") === undefined) {
-
-							// Duplicate handling user input is unset.
-
-							SmartStore.Admin.Media.initDuplicateHandlingDialog($el.data('dialog-url'), duplicateFileHandlingCallback);
-
-							var duplicateDialog = $("#duplicate-window");
-
-							// Set dz caller id to identify dropzone in outside events.
-							duplicateDialog.attr("data-caller-id", elDropzone.find(".fileupload").attr("id"));
-
-							// Ask user once what he wants to do with conflicting files.
-							duplicateDialog.modal('show');
-
-							// Store all remaining files to be able to add them again after duplicate handling by user decision.
-							remainingFiles = this.getActiveFiles();
-
-							// Add current file to remaining files.
-							remainingFiles.push(file);
-
-							// Copy into new array.
-							remainingFiles = remainingFiles.slice(0, remainingFiles.length);
-
-							// Remove all files to break the upload chain. They'll be added again in duplicate handling dialog click event.
-							this.removeAllFiles();
-						}
-						else {
-
-							// Duplicate handling user input is set.
-							
-							// File was rejected by the server thus remove it from dropzone.
-							this.removeFile(file);
+					// If there was an error returned by the server set file status accordingly.
+					if (response.length) {
+						for (fileResponse of response) {
+							if (!fileResponse.success) {
+								file.status = Dropzone.ERROR;
+								file.response = fileResponse;
+							}
 						}
 					}
 					else {
-						// Picture wasn't uploaded yet.
-						// TODO: If this case won't be needed by the end of development > write different if clauses.
+						if (!response.success) {
+							file.status = Dropzone.ERROR;
+							file.response = response;
+						}
 					}
 				}
 
@@ -225,8 +185,7 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 			});
 
 			el.on("successmultiple", function (files, response, progress) {
-
-				console.log("successmultiple", files.length, response, progress);
+				logEvent("successmultiple", files, response, progress);
 
 				if (response.length) {
 					$.each(response, function (i, value) {
@@ -237,11 +196,16 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 					assignableFileIds += response.fileId + ",";
 				}
 
-				assignableFiles = files;
+				if (files.length) {
+					assignableFiles = files;
+				}
+				else {
+					assignableFiles.push(files);
+				}
 			});
 
 			el.on("complete", function (file) {
-				console.log("complete", file);
+				logEvent("complete", file);
 
 				if (opts.maxFiles === 1) {
 					// Reset dropzone for single file uploads, so other files can be uploaded again.
@@ -249,11 +213,27 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 				}
 			});
 
-			el.on("completemultiple", function (file, response, progress) {
-				
-				console.log("completemultiple", activeFiles, assignableFiles.length, assignableFileIds);
+			el.on("completemultiple", function (files) {
+				logEvent("completemultiple", files);
+				logEvent("completemultiple", " > activeFiles, assignableFiles.length, assignableFileIds", activeFiles, assignableFiles.length, assignableFileIds);
 
-				if (activeFiles === assignableFiles.length) {
+				var dupeFiles = this.getFilesWithStatus(Dropzone.ERROR)
+					.filter(file => file.response && file.response.dupe === true);
+
+				// Dupe file handling is 'replace' thus no need for assignment to entity (media IDs remain the same, while file was altered). 
+				if (fuContainer.data("dupe-handling-type") === 1) {
+					// Update preview pic of replaced media file.
+					for (var newFile of files) {
+						var elCurrentFile = previewContainer.find(".dz-image-preview[data-media-id='" + newFile.response.fileId + "']");
+						elCurrentFile.find("img").attr("src", newFile.dataURL);
+						this.removeFile(newFile);
+					}
+				}
+
+				//console.log(activeFiles, assignableFiles.length, dupeFiles.length);
+
+				// TODO: find safer way to determine whether all files were processed.
+				if (activeFiles === assignableFiles.length && dupeFiles.length === 0) {
 					assignFilesToEntity(assignableFiles, assignableFileIds);
 				}
 				else {
@@ -263,22 +243,51 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 				}
 			});
 
-			el.on("canceledmultiple", function (file, response, progress) {
-				console.log("canceledmultiple");
+			el.on("canceledmultiple", function (files) {
+				logEvent("canceledmultiple", files);
 			});
 
-			el.on("queuecomplete", function (file) {
-				console.log("queuecomplete");
+			el.on("queuecomplete", function () {
+				logEvent("queuecomplete");
 
-				console.log("Status > getAcceptedFiles:", this.getAcceptedFiles().length);
-				console.log("Status > getRejectedFiles:", this.getRejectedFiles().length);
+				var dupeFiles = this.getFilesWithStatus(Dropzone.ERROR)
+					.filter(file => file.response && file.response.dupe === true);
+
+				// If there are duplicates & dialog isn't already open > open duplicate file handler dialog.
+				if (dupeFiles.length !== 0 && !$("#duplicate-window").hasClass("show")) {
+					dupeFileHandlerDisplayFile = SmartStore.Admin.Media.openDupeFileHandlerDialog(
+						dupeFileHandlerCallback,		
+						elDropzone.find(".fileupload").attr("id"),
+						dupeFiles[0]								// Pass first duplicate file to be displayed in dialog.
+					);
+				}
+
+				updateUploadStatus(this, elStatus);
+
+				// Reset progressbar when queue is complete.
+				if (opts.maxFiles === 1) {
+					// SingleFile
+					dzResetProgressBar(elProgressBar);
+				}
+				else {
+					// MultiFile
+					var uploadedFiles = this.files;
+					for (file of uploadedFiles) {
+						dzResetProgressBar($(file.previewElement).find(".fileupload-progress"));
+					}
+				}
+
+				// DEV
+				//$(".open-upload-summmary").show();
 			});
 
 			el.on("canceled", function (file) {
+				logEvent("canceled", file);
 				if (options.onAborted) options.onAborted.apply(this, [file]);
 			});
 
 			el.on("removedfile", function (file) {
+				logEvent("removedfile", file);
 
 				// Reset progress bar when file was removed.
 				dzResetProgressBar(elProgressBar);
@@ -287,33 +296,40 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 			});
 
 			el.on("complete", function (file) {
+				logEvent("complete", file);
 				if (options.onCompleted) options.onCompleted.apply(this, [file]);
 			});
 
 			el.on("error", function (file, errMessage, xhr) {
+				logEvent("error", file, errMessage, xhr);
 
-				console.log(errMessage, file);
+				// Write current message into file so it can be displayed in file upload status.
+				file.message = errMessage;
 
 				if (xhr && file.status === "error") {
 					console.log(xhr.statusText, "error");
 				}
 
-				// Single file only. Multifile errors must be shown in summary.
-				if (!file.accepted && opts.maxFiles === 1) {
-					displayNotification(errMessage, "error");
-					//return;
-				}
+				//if (!file.accepted && opts.maxFiles === 1) {
+				displayNotification(errMessage, "error");
+				this.removeFile(file);
+				//}
 
 				if (options.onError) options.onError.apply(this, [file, errMessage]);
 			});
 
+			el.on("errormultiple", function (files, errMessage) {
+				logEvent("errormultiple", files, errMessage);
+			});
+			
 			el.on("drop", function (files) {
-
+				logEvent("drop", files);
 				// Reset canUploadMoreFiles if new files have been added.
 				canUploadMoreFiles = true;
 			});
 
 			el.on("maxfilesexceeded", function (file) {
+				logEvent("maxfilesexceeded", file);
 
 				// Only for singleupload.
 				if (opts.maxFiles === 1) {
@@ -328,13 +344,9 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 			});
 
 			function assignFilesToEntity(assignableFiles, assignableFileIds) {
-
-				console.log("assignFilesToEntity", assignableFileIds);
-
-				if ($el.data('assignment-url')) {
-
+				if ($el.data('assignment-url') && assignableFileIds !== "" && assignableFiles.length > 0) {
 					$.ajax({
-						async: false,
+						async: true,
 						cache: false,
 						type: 'POST',
 						url: $el.data('assignment-url'),
@@ -343,8 +355,6 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 							entityId: $el.data('entity-id')
 						},
 						success: function (response) {
-
-							console.log("assignFilesToEntity", response, assignableFiles);
 
 							$.each(response.response, function (i, value) {
 
@@ -366,11 +376,11 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 
 									elPreview
 										.attr("data-display-order", 1000)
-										.attr("data-picture-id", value.MediaFileId)
-										.attr("data-entity-picture-id", value.ProductMediaFileId)
+										.attr("data-media-id", value.MediaFileId)
+										.attr("data-media-name", value.Name)
+										.attr("data-entity-media-id", value.ProductMediaFileId)
 										.attr("data-original-title", '<div class="text-left px-3"><em>' + file.name + '</em> <br/> <b>' + el.filesize(file.size) + '</b></div>')
-										.addClass("d-flex")
-										.removeClass("d-none")
+										//.removeClass("d-none")
 										.tooltip();
 
 									elPreview
@@ -378,9 +388,6 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 										.attr('src', file.dataUrl);
 
 									previewContainer.append(elPreview);
-
-									//console.log("pop", file);
-									//assignableFiles.pop(file);
 								}
 								else {
 									console.log("Error when adding preview element.", value.Name.toLowerCase());
@@ -395,22 +402,33 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 			$(fuContainer).on("click", ".delete-entity-picture", function (e) {
 
 				var previewThumb = $(this).closest('.dz-image-preview');
+				var entityMediaFileId = previewThumb.data("entity-media-id");
+				var mediaFileId = previewThumb.data("media-id");
 
 				$.ajax({
 					async: false,
 					cache: false,
 					type: 'POST',
 					url: $el.data('remove-url'),
-					data: { id: previewThumb.data("entity-picture-id") },
+					data: { id: entityMediaFileId },
 					success: function () {
-						previewThumb.removeClass("d-flex")
-							.addClass("d-none");
 
-						// TODO: Files must be removed from dropzone.
-						//dropzone.removeFile(file);
-						console.log("On Deleting", el, el.files);
+						previewThumb.remove();
+
+						// File must be removed from dropzone if it was added in current queue.
+						var file = el.files.find(file => file.response.fileId === mediaFileId);
+						if (file)
+							el.removeFile(file);
 					}
 				});
+
+				return false;
+			});
+
+			// Show summary.
+			$(fuContainer).on("click", ".open-upload-summmary", function (e) {
+
+				elStatus.show();
 
 				return false;
 			});
@@ -444,29 +462,10 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 		});
 	};
 
-	function dzResetProgressBar(elProgressBar) {
-
-		_.delay(function () {
-			// Remove transition for reset.
-			elProgressBar.css("transition", "none");
-
-			elProgressBar
-				.attr('aria-valuenow', 0)
-				.css('width', 0 + '%');
-
-			_.delay(function () {
-				// Remove inline transition style after transition (0.25s) was performed.
-				elProgressBar.css("transition", "");
-			}, 250);
-
-		}, 300);
-	}
-
 	// Global events
-
-	// Used to highlight dropzone when a file is dragged into the browser.
 	var fuContainer = $('.fileupload-container');
 
+	// Highlight dropzone element when a file is dragged into it.
 	fuContainer.on("dragover", function (e) {
 
 		if (fuContainer.hasClass("dz-highlight"))
@@ -475,7 +474,6 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 		fuContainer.addClass("dz-highlight");
 
 	}).on("dragleave", function (e) {
-
 		if ($(e.relatedTarget).closest('.fileupload-container').length === 0) {
 
 			if (!fuContainer.hasClass("dz-highlight"))
@@ -490,48 +488,180 @@ Dropzone.prototype.defaultOptions.dictMaxFilesExceeded = Res['FileUploader.Dropz
 		fuContainer.removeClass("dz-highlight");
 	});
 
-	// Callback fdunction for duplicate file handling dialog.
-	function duplicateFileHandlingCallback() {
+	// Disable tooltips on preview sorting.
+	$(document).on("dragstart", ".dz-image-preview", function (e) {
+		$(".dz-image-preview").tooltip("disable");
+	}).on("dragend", ".dz-image-preview", function (e) {
+		$(".dz-image-preview").tooltip("enable");
+	});
 
+	// Callback function for duplicate file handling dialog.
+	function dupeFileHandlerCallback(dupeFileHandlingType, saveSelection, callerId) {
 		var duplicateDialog = $("#duplicate-window");
-
-		// Should never happen.
-		if (!remainingFiles) {
-			duplicateDialog.modal('hide');
-			return;
-		}
-
-		var callerId = duplicateDialog.data("caller-id");
-		var userInput = duplicateDialog.find('input[name=duplicate-handling]:checked').data("enum-id");
-
-		// Store user decision for application at later conflicts.
-		$("#" + callerId)
-			.closest(".fileupload-container")
-			.attr("data-duplicate-handling", userInput);
-
 		var dropzone = Dropzone.forElement($("#" + callerId).closest(".fileupload-container")[0]);
+		var errorFiles = dropzone.getFilesWithStatus(Dropzone.ERROR);
 
-		// Set status for remainingItems.
-		$.each(remainingFiles, function (i, file) {
+		// Get all duplicate files.
+		var dupeFiles = errorFiles.filter(file => file.response && file.response.dupe === true);
 
-			if (file.status === Dropzone.SUCCESS) {
-				file.status = undefined;
-				file.accepted = undefined;
-				file.processing = false;
+		if (!saveSelection) {
+			var firstFile = dupeFiles[0];
+			firstFile.dupeHandlingType = dupeFileHandlingType;
+
+			// Do nothing on skip.
+			if (dupeFileHandlingType === "0") {
+				dropzone.removeFile(firstFile);
+
+				if (dupeFiles[1]) {
+					dupeFileHandlerDisplayFile.file = dupeFiles[1];
+				}
+				else {
+					dropzone.emit("queuecomplete");
+					duplicateDialog.modal('hide');
+				}
+
+				return;
 			}
 
-			dropzone.addFile(file);
-		});
+			// Reset file status.
+			resetFileStatus(firstFile);
 
-		console.log("DialogClosed > remainingFiles", remainingFiles);
+			// Process first file. 
+			dropzone.processFile(firstFile);
 
-		dropzone.processFiles(remainingFiles);
+			// If current file is last file > close dialog else display next file.
+			if (dupeFiles.length === 1) {
+				duplicateDialog.modal('hide');
+			}
+			else {
+				dupeFileHandlerDisplayFile.file = dupeFiles[1];
+			}
 
-		remainingFiles = [];
+			// And leave.
+			return;
+		}
+		else {
+			// Reset file status.
+			for (file of dupeFiles) {
+				resetFileStatus(file);
+				file.dupeHandlingType = dupeFileHandlingType;
+			}
 
-		duplicateDialog.modal('hide');
+			// Do nothing on skip.
+			if (dupeFileHandlingType === "0") {
+				dropzone.emit("queuecomplete");
+				duplicateDialog.modal('hide');
+				return;
+			}
+
+			// Process all files and leave.
+			dropzone.processFiles(dupeFiles);
+			duplicateDialog.modal('hide');
+
+			return;
+		}
 	}
 
+	function preCheckForDuplicates(addFileName, previewContainer) {
+		var files = previewContainer.find(".dz-image-preview");
+
+		var dupe = files.filter(function () {
+			var mediaName = $(this).data("media-name");
+
+			if (mediaName)
+				mediaName = mediaName.toLowerCase();
+
+			return mediaName === addFileName.toLowerCase();
+		});
+
+		return dupe.length === 1;
+	}
+
+	function updateUploadStatus(dropzone, elStatus) {
+		var summary = elStatus.find(".fileupload-status-summary"),
+			uploadedFileCount = summary.find(".uploaded-file-count"),
+			totalFileCount = summary.find(".total-file-count"),
+			errors = elStatus.find(".erroneous-files");
+
+		var successFiles = dropzone.getFilesWithStatus(Dropzone.SUCCESS);
+		var errorFiles = dropzone.getFilesWithStatus(Dropzone.ERROR);
+		var otherErrors = errorFiles.filter(file => !file.response && file.message);
+
+		// Summary.
+		uploadedFileCount.text(successFiles.length);
+		totalFileCount.text(dropzone.files.length);
+
+		// Errors.
+		if (otherErrors.length > 0) {
+
+			var errorMarkUp = "";
+			for (file of errorFiles) {
+				errorMarkUp += "<div><span>" + file.name + "</span>";
+				errorMarkUp += "<span>" + file.message + "</span></div>";
+			}
+
+			errors.find(".file-list")
+				.html(errorMarkUp)
+				.removeClass("d-none");
+		}
+
+		// Renamed, replaced, skipped.
+		var skippedFiles = dropzone.files.filter(file => file.dupeHandlingType === "0");
+		var replacedFiles = dropzone.files.filter(file => file.dupeHandlingType === "1");
+		var renamedFiles = dropzone.files.filter(file => file.dupeHandlingType === "2");
+
+		fillStatusList(skippedFiles, elStatus.find(".skipped-files"));
+		fillStatusList(renamedFiles, elStatus.find(".renamed-files"));
+		fillStatusList(replacedFiles, elStatus.find(".replaced-files"));
+	}
+
+	function fillStatusList(files, elList) {
+		if (files.length > 0) {
+
+			var markUp = "";
+			for (file of files) {
+				markUp += "<div><span>" + file.name + "</span></div>";
+			}
+
+			elList.find(".file-list").html(markUp);
+			elList.removeClass("d-none");
+		}
+	}
+
+	function resetFileStatus(file) {
+		if (file.status === Dropzone.SUCCESS) {
+			file.status = undefined;
+			file.accepted = undefined;
+			file.processing = false;
+			file.response = null;
+		}
+	}
+
+	function dzResetProgressBar(elProgressBar) {
+		_.delay(function () {
+			// Remove transition for reset.
+			elProgressBar.css("transition", "none");
+
+			elProgressBar
+				.attr('aria-valuenow', 0)
+				.css('width', 0 + '%');
+
+			_.delay(function () {
+				// Remove inline transition style after transition (0.25s) was performed.
+				elProgressBar.css("transition", "");
+			}, 250);
+		}, 300);
+	}
+
+	function logEvent() {
+		var keyValues = getQueryStrings();
+
+		// logEvents should be a get parameter ?logEvents=all || ?logEvents=eventname
+		var paramValue = keyValues.logevents;
+		if (paramValue === "all" || paramValue === logEvent.arguments[0]) {
+			console.log.apply(console, logEvent.arguments);
+		}
+	}
 
 })(jQuery);
 

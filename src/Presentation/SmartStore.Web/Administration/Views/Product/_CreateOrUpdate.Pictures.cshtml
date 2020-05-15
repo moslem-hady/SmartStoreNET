@@ -65,12 +65,12 @@ else
 				var el = $(this).closest('.dz-image-preview');
 
 				$.ajax({
-					async: false,
+					async: true,
 					cache: false,
 					type: 'POST',
 					url: '@Url.Action("SetMainPictureId", "Product")',
 					data: {
-						pictureId: el.data("picture-id"),
+						pictureId: el.data("media-id"),
 						productId: @Model.Id
 					},
                     success: function () {

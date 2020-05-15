@@ -24,6 +24,7 @@
 
 		var id = (opts.id || "modal-popup-shared");
 		var modal = $('#' + id);
+		var iframe;
 		var sizeClass = "";
 
 		if (opts.flex === undefined) opts.flex = true;
@@ -62,17 +63,27 @@
 			var spinner = $('<div class="spinner-container w-100 h-100 active" style="position:absolute; top:0; background:#fff; border-radius:4px"></div>').append(createCircularSpinner(64, true, 2));
 			modal.find('.modal-body').append(spinner);
 
-			modal.find('.modal-body > iframe').on('load', function (e) {
+			iframe = modal.find('.modal-body > iframe');
+			iframe.on('load', function (e) {
 				modal.find('.modal-body > .spinner-container').removeClass('active');
 			});
 		}
 		else {
-			var iframe = modal.find('.modal-body > iframe');
+			iframe = modal.find('.modal-body > iframe');
 			modal.find('.modal-body > .spinner-container').addClass('active');
 			iframe.attr('src', opts.url);
 		}
 
+		if (_.isFunction(opts.onMessage)) {
+			$(iframe.get(0).contentWindow).one('message', function (e) {
+				var result = e.originalEvent.data;
+				opts.onMessage.apply(this, [result]);
+			});
+        }
+
 		modal.modal('show');
+
+		return iframe.get(0);
 	}
 
 	window.closePopup = function (id) {
@@ -118,23 +129,6 @@
 
 		return url + createQueryString(qs);
 
-		// http://stackoverflow.com/questions/2907482
-		// Gets Querystring from window.location and converts all keys to lowercase
-		function getQueryStrings(search) {
-			var assoc = { };
-			var decode = function (s) { return decodeURIComponent(s.replace(/\+/g, " ")); };
-			var queryString = (search || location.search).substring(1);
-			var keyValues = queryString.split('&');
-
-			for (var i in keyValues) {
-				var key = keyValues[i].split('=');
-				if (key.length > 1)
-					assoc[decode(key[0]).toLowerCase()] = decode(key[1]);
-			}
-
-			return assoc;
-		}
-
 		function createQueryString(dict) {
 			var bits = [];
 			for (var key in dict) {
@@ -144,6 +138,23 @@
 			}
 			return bits.length > 0 ? "?" + bits.join("&") : "";
 		}
+	}
+
+	// http://stackoverflow.com/questions/2907482
+	// Gets Querystring from window.location and converts all keys to lowercase
+	window.getQueryStrings = function(search) {
+		var assoc = {};
+		var decode = function (s) { return decodeURIComponent(s.replace(/\+/g, " ")); };
+		var queryString = (search || location.search).substring(1);
+		var keyValues = queryString.split('&');
+
+		for (var i in keyValues) {
+			var key = keyValues[i].split('=');
+			if (key.length > 1)
+				assoc[decode(key[0]).toLowerCase()] = decode(key[1]);
+		}
+
+		return assoc;
 	}
 
 	window.htmlEncode = function (value) {
